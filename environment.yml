@@ -1,0 +1,13 @@
+name: kn_env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+    - numpy
+    - scipy
+    - matplotlib
+    - pandas
+    - pytest
+    - sympy
