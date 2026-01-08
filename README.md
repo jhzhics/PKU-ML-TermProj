@@ -7,3 +7,10 @@ This is a research project on [Kissing Number Problem](https://en.wikipedia.org/
 # Solvers
 ### [src/repulsion_solver.py](src/repulsion_solver.py)
 First initialize points randomly and then optimize to make the distance bigger.
+
+Achieve: 5 Dim 31 Points 
+
+### [src/slack_solver.py](src/slack_solver.py)
+First initialize n points as a simplex in (n - 1) dimension and then optimize a projection to d dimension.
+
+Achieve: 5 Dim 36 Points
