@@ -50,7 +50,7 @@ def is_accepted_solution(solution: Annotated[np.ndarray, "shape=(n, d)"], prec: 
                 if sympy.simplify(dist_sq - max_dist_sqaured) < 0:
                     return False
     else:
-        points = [[Decimal(coord) for coord in point] for point in solution]    
+        points = [[Decimal(float(coord)) for coord in point] for point in solution]
         with localcontext() as ctx:
             ctx.prec = prec
             # Compute maximum distance from origin
