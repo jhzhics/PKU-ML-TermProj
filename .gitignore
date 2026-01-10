@@ -3,3 +3,7 @@
 
 # Python cache files
 __pycache__/
+
+.DS_Store
+out_d3/
+out_d3_quick/
