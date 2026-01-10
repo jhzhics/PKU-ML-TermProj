@@ -1,71 +1,53 @@
 import torch
 import math
 from typing import Annotated
+from AALM import init_symmetric_points,alm_solve_kissing_number
+from slack_solver import solve as slack_solve
+import validator
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+dtype = torch.float64
 
-def inplace_optimize(tensor: Annotated[torch.Tensor, "shape(..., n, d)"], lr: float = 0.01, stop_eps = 1e-3, max_iters: int = 10000):
-    '''
-    In-place optimization of a population tensor with repulsion solver.
-    
-    :param tensor: shape (..., n, d) population tensor
-    :type tensor: torch.Tensor
-    :param stop_eps: the optimization stops when the change in the tensor is below this threshold
-    :type stop_eps: float
-    :param max_iters: maximum number of optimization iterations
-    :type max_iters: int
-    '''
-    
-    orig_shape = tensor.shape
-    n = orig_shape[-2]
-    d = orig_shape[-1]
-    flat_tensor = tensor.view(-1, n, d)
-    pop_size = flat_tensor.shape[0]
-    
-    device = flat_tensor.device
-    s = 2.0
-    
-    with torch.no_grad():
-        flat_tensor /= flat_tensor.norm(dim=2, keepdim=True).clamp(min=1e-12)
+def optimize(batch_tensor: torch.Tensor) -> torch.Tensor:
+    orig_shape = batch_tensor.shape
+    n, d = orig_shape[-2], orig_shape[-1]
+    x = batch_tensor.view(-1, n, d).detach().clone().requires_grad_(True)
+    B = x.shape[0]
 
-    for i in range(max_iters):
-        prev_flat = flat_tensor.clone().detach()
-        
-        flat_tensor.requires_grad_(True)
-        
-        inner_products = torch.bmm(flat_tensor, flat_tensor.transpose(1, 2))
-        
-        dist_sq = (2.0 - 2.0 * inner_products).clamp(min=1e-14)
+    # Initialize multipliers and penalty parameters for each sample in the batch
+    lambda_eq = torch.zeros(B, n, device=x.device)
+    mu_ineq = torch.zeros(B, n, n, device=x.device)
+    rho = torch.ones(B, 1, 1, device=x.device) * 1.0
+    
+    optimizer = torch.optim.Adam([x], lr=0.01)
 
-        mask = torch.triu(torch.ones(n, n, device=device), diagonal=1)
-        energy = torch.sum(mask.expand(pop_size, n, n) * torch.pow(dist_sq, -s/2))
-        
-        energy.backward()
-        
+    for alm_iter in range(10):
+        for inner in range(50):
+            optimizer.zero_grad()
+
+            dists = torch.cdist(x, x)
+            
+            eq_res = torch.norm(x, dim=-1) - 1.0
+            ineq_res = torch.clamp(1.0 - dists, min=0.0)
+            
+            loss_eq = (lambda_eq * eq_res + 0.5 * rho.squeeze(-1) * eq_res**2).sum()
+            loss_ineq = (mu_ineq * ineq_res + 0.5 * rho * ineq_res**2).sum()
+            
+            total_loss = loss_eq + loss_ineq
+            total_loss.backward()
+            optimizer.step()
+            
         with torch.no_grad():
-            current_lr = lr * math.cos(math.pi * i / (2 * max_iters))
+            lambda_eq += rho.squeeze(-1) * eq_res
+            mu_ineq = torch.clamp(mu_ineq + rho * ineq_res, min=0.0)
             
-            grad = flat_tensor.grad
-            if grad is None:
-                continue
+            violation = eq_res.abs().max(dim=-1)[0]
+            rho[violation > 1e-4] *= 1.5
 
-            eta = -current_lr * grad
-            norm_eta = eta.norm(dim=2, keepdim=True).clamp(min=1e-14)
-
-            new_points = flat_tensor * torch.cos(norm_eta) + (eta / norm_eta) * torch.sin(norm_eta)
-            new_points /= new_points.norm(dim=2, keepdim=True)
-            
-            flat_tensor.copy_(new_points)
-            
-            flat_tensor.grad.zero_()
-
-        diff = torch.norm(flat_tensor - prev_flat, dim=(1, 2)).mean()
-        if diff < stop_eps:
-            break
-    return tensor
+    return x.view(orig_shape)
 
 class EvolutionSolver():
-    def __init__(self, n: int, d: int, pop_size: int, mutation_rate: float, crossover_rate: float,generations: int):
+    def __init__(self, n: int, d: int, pop_size: int, mutation_rate: float, crossover_rate: float,generations: int, early_stop_cost: float = 0.5):
         '''
         :param crossover_rate: Will have popsize * crossover_rate offspring created by crossover
         :type crossover_rate: float
@@ -76,14 +58,48 @@ class EvolutionSolver():
         self.mutation_rate = mutation_rate
         self.crossover_rate = crossover_rate
         self.generations = generations
-        
+        self.early_stop_cost = early_stop_cost
     def initialize_population(self):
-        self.population = torch.randn(self.pop_size, self.n, self.d, device=device)
-        self.population /= torch.norm(self.population, dim=2, keepdim=True)
-        inplace_optimize(self.population)
+        """
+        Initialize the population using a mix of strategies:
+        1. Symmetric Icosahedron
+        2. Simplex Projection
+        3. Random Exploration
+        """
+        self.population = torch.zeros(self.pop_size, self.n, self.d, device=device,dtype=dtype)
+        
+        size_simplex = int(self.pop_size * 0.34)
+        size_symmetric = int(self.pop_size * 0.34)
+        size_random = self.pop_size - size_simplex - size_symmetric
+
+        # --- First part: Simplex Projection ---
+        print(f"Initializing {size_simplex} individuals using Simplex Projection.")
+        if size_simplex > 0:
+            simplex_inits = slack_solve(
+                batch=size_simplex, n=self.n, d=self.d, 
+                device=device, total_steps=10000 
+            )
+            self.population[:size_simplex] = simplex_inits
+
+        # --- Second part: Symmetric Icosahedron ---
+        print(f"Initializing {size_symmetric} individuals using Symmetric Icosahedron.")
+        idx_start = size_simplex
+        idx_end = size_simplex + size_symmetric
+        for i in range(idx_start, idx_end):
+            self.population[i] = init_symmetric_points(self.d, self.n, device)
+
+        # --- Third part: Random Exploration ---
+        print(f"Initializing {size_random} individuals using Random Exploration.")
+        if size_random > 0:
+            random_pop = torch.randn(size_random, self.n, self.d, device=device)
+            random_pop /= random_pop.norm(dim=2, keepdim=True).clamp(min=1e-12)
+            self.population[idx_end:] = random_pop
+
+        self.population = optimize(self.population)
+
         
     @staticmethod
-    def calculate_socre(X: torch.Tensor) -> torch.Tensor:
+    def calculate_score(X: torch.Tensor) -> torch.Tensor:
         '''
         Calculate the score (maximum cosine similarity) of the given tensor X.
         
@@ -126,7 +142,7 @@ class EvolutionSolver():
         
         rand_indices = torch.randint(0, n, size=(num_instances,), device=device)
 
-        new_points = torch.randn(num_instances, d, device=device)
+        new_points = torch.randn(num_instances, d, device=device, dtype=dtype)
         new_points /= torch.norm(new_points, dim=-1, keepdim=True).clamp(min=1e-12)
         
 
@@ -134,8 +150,39 @@ class EvolutionSolver():
         flat_tensor[batch_indices, rand_indices, :] = new_points
         
 
-        inplace_optimize(flat_tensor)
+        flat_tensor = optimize(flat_tensor)
         return flat_tensor.view(orig_shape)
+    
+    def get_crossover_indices(self, num_crossovers: int) -> tuple[torch.Tensor, torch.Tensor]:
+        '''
+        Get indices for parent selection during crossover.
+        This method selects parents such that elite pairs are prioritized.
+        '''
+        target_elite_count = num_crossovers // 2
+        K = int(math.sqrt(target_elite_count))
+        K = max(1, min(K, self.pop_size)) 
+
+
+        idx_range = torch.arange(K, device=device)
+        idx_i, idx_j = torch.meshgrid(idx_range, idx_range, indexing='ij')
+        
+        p1_elite = idx_i.reshape(-1)
+        p2_elite = idx_j.reshape(-1)
+        
+        current_elite_num = p1_elite.shape[0]
+        remaining = num_crossovers - current_elite_num
+        
+        if remaining > 0:
+            p1_rand = torch.randint(0, self.pop_size, (remaining,), device=device)
+            p2_rand = torch.randint(0, self.pop_size, (remaining,), device=device)
+            
+            idx1 = torch.cat([p1_elite, p1_rand], dim=0)
+            idx2 = torch.cat([p2_elite, p2_rand], dim=0)
+        else:
+            idx1 = p1_elite[:num_crossovers]
+            idx2 = p2_elite[:num_crossovers]
+            
+        return idx1, idx2
     
     @staticmethod
     def crossover(parent1: torch.Tensor, parent2: torch.Tensor) -> torch.Tensor:
@@ -157,7 +204,7 @@ class EvolutionSolver():
         p2 = parent2.view(-1, n, d).clone()
         batch_size = p1.shape[0]
 
-        random_matrix = torch.randn(batch_size, d, d, device=device)
+        random_matrix = torch.randn(batch_size, d, d, device=device,dtype=dtype)
         q, r = torch.linalg.qr(random_matrix)
         d_sign = torch.diagonal(r, dim1=-2, dim2=-1).sign().view(batch_size, 1, d)
         q = q * d_sign
@@ -176,7 +223,7 @@ class EvolutionSolver():
         k = math.ceil(n / 2)
         offspring = torch.cat([p1_sorted[:, :k, :], p2_sorted[:, k:, :]], dim=1)
         
-        inplace_optimize(offspring)
+        offspring = optimize(offspring)
 
         return offspring.view(orig_shape)
     
@@ -185,37 +232,46 @@ class EvolutionSolver():
         
         for gen in range(self.generations):
             if verbose:
-                scores = self.calculate_socre(self.population)
+                scores = self.calculate_score(self.population)
                 best_score = scores.min().item()
                 mean_score = scores.mean().item()
                 worst_score = scores.max().item()
                 
                 print(f"Gen {gen:4d} | Best Cosine Similarity: {best_score:.6f}\
 | Mean Cosine Similarity: {mean_score:.6f} | Worst Cosine Similarity: {worst_score:.6f}")
+                
+                if best_score <= self.early_stop_cost:
+                    print(f"Early stopping at generation {gen} with best score {best_score:.6f}")
+                    break
             num_mutations = int(self.pop_size * self.mutation_rate)
             num_crossovers = int(self.pop_size * self.crossover_rate)
             
-            mutated = self.mutate(self.population[:num_mutations])
+            mutated_indices = torch.randint(0, self.pop_size, (num_mutations,), device=device)
+            mutated = self.mutate(self.population[mutated_indices])
             
-            parents1_indices = torch.randint(0, self.pop_size, (num_crossovers,), device=device)
-            parents2_indices = torch.randint(0, self.pop_size, (num_crossovers,), device=device)
+            parents1_indices, parents2_indices = self.get_crossover_indices(num_crossovers)
             parents1 = self.population[parents1_indices]
             parents2 = self.population[parents2_indices]
             offspring = self.crossover(parents1, parents2)
             
             combined = torch.cat([self.population, mutated, offspring], dim=0)
-            scores = self.calculate_socre(combined)
+            scores = self.calculate_score(combined)
             _, top_indices = torch.topk(-scores, self.pop_size)
             self.population = combined[top_indices]
         
         return self.population
     
 def main():
-    evolver = EvolutionSolver(n=33, d=5, pop_size=50, mutation_rate=0.2, crossover_rate=1.0, generations=100)
+    evolver = EvolutionSolver(n=38, d=5, pop_size=100, mutation_rate=1.0, crossover_rate=2.0, generations=20)
     final_population = evolver.solve(verbose=True)
-    best_score = EvolutionSolver.calculate_socre(final_population)
+    best_score = EvolutionSolver.calculate_score(final_population)
     best_index = torch.argmin(best_score)
     print("Best solution found with maximum cosine similarity:", best_score[best_index].item())
+    best_layout = final_population[best_index]
+    if validator.is_accepted_solution(best_layout.cpu().detach().numpy()):
+        print("Found valid solution.")
+    else:
+        print("Solution is NOT valid.")
 
 if __name__ == "__main__":
     main()

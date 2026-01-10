@@ -14,3 +14,14 @@ Achieve: 5 Dim 31 Points
 First initialize n points as a simplex in (n - 1) dimension and then optimize a projection to d dimension.
 
 Achieve: 5 Dim 36 Points
+
+
+### [src/AALM.py](src/AALM.py)
+Augmented Lagrangian Method (ALM) with a hybrid Adam/L-BFGS optimizer. Initialize as Icosahedron.
+
+Achieve: 5 Dim 36 Points
+
+### [src/evolution_solver.py](src/evolution_solver.py)
+Evolution algorithm on initial set. Optimize using Augmented Lagrangian Method. Initialize using a mix of symmetric and random sets.
+
+Achieve: 5 Dim 38 Points
