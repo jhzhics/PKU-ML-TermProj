@@ -1,9 +1,11 @@
 import torch
 import math
-from typing import Annotated
-from AALM import init_symmetric_points,alm_solve_kissing_number
+from AALM import init_symmetric_points
 from slack_solver import solve as slack_solve
 import validator
+import json
+import signal
+import sys
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 dtype = torch.float64
@@ -261,17 +263,57 @@ class EvolutionSolver():
         
         return self.population
     
+    def get_current_best(self) -> tuple[torch.Tensor, float]:
+        scores = self.calculate_score(self.population)
+        best_score, best_index = torch.min(scores, dim=0)
+        best_layout = self.population[best_index]
+        return best_layout, best_score.item()
+    
+
+def save_checkpoint(layout, score, d, n, filename="result.json"):
+    print(f"\n[Saving] Saving layout to {filename}...")
+    save_data = {
+        "dimension": d,
+        "num_spheres": n,
+        "best_score": float(score),
+        "layout": layout.cpu().detach().numpy().tolist()
+    }
+    with open(filename, "w") as f:
+        json.dump(save_data, f)
+    print("[Saving] Save complete.\n")
+    
+    
 def main():
-    evolver = EvolutionSolver(n=38, d=5, pop_size=100, mutation_rate=1.0, crossover_rate=2.0, generations=20)
-    final_population = evolver.solve(verbose=True)
-    best_score = EvolutionSolver.calculate_score(final_population)
-    best_index = torch.argmin(best_score)
-    print("Best solution found with maximum cosine similarity:", best_score[best_index].item())
-    best_layout = final_population[best_index]
-    if validator.is_accepted_solution(best_layout.cpu().detach().numpy()):
-        print("Found valid solution.")
-    else:
-        print("Solution is NOT valid.")
+    def signal_handler(sig, frame):
+        print("\nSaving current best solution and exiting...")
+        try:
+            current_best_layout, current_best_score = evolver.get_current_best()
+            save_checkpoint(current_best_layout, current_best_score, d, n)
+        except Exception as e:
+            print(f"[Error] Failed to save checkpoint: {e}")
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    
+    try:
+        n = 38
+        d = 5
+        evolver = EvolutionSolver(n=n, d=d, pop_size=100, mutation_rate=1.0, crossover_rate=2.0, generations=20)
+        final_population = evolver.solve(verbose=True)
+        best_score = EvolutionSolver.calculate_score(final_population)
+        best_index = torch.argmin(best_score)
+        print("Best solution found with maximum cosine similarity:", best_score[best_index].item())
+        best_layout = final_population[best_index]
+        if validator.is_accepted_solution(best_layout.cpu().detach().numpy()):
+            print("Found valid solution.")
+        else:
+            print("Solution is NOT valid.")
+            
+    except Exception as e:
+        print(f"[Error] An exception occurred: {e}")
+    finally:
+        signal_handler(None, None)
+    
 
 if __name__ == "__main__":
     main()
