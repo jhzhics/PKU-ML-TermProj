@@ -1,0 +1,10 @@
+numpy>=1.23
+pyyaml>=6.0
+tqdm>=4.66
+
+# optional (faster/better refinement):
+torch>=2.0; platform_system!="Windows"
+
+# optional:
+# scipy>=1.10
+# sympy>=1.12

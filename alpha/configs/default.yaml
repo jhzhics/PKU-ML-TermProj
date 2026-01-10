@@ -1,0 +1,14 @@
+min_dist: 1.0
+max_norm: 1.0
+empty_radius_directions: 8192
+
+evolution:
+  population: 128
+  elite_frac: 0.15
+  mutation_sigma: 0.08
+  mutation_rate: 0.9
+  crossover_rate: 0.15
+  iters: 3000
+  local_refine_every: 30
+  refine_steps: 120
+  refine_lr: 0.03
