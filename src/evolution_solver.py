@@ -7,6 +7,8 @@ import json
 import signal
 import sys
 import matplotlib.pyplot as plt
+import os
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 dtype = torch.float64
@@ -285,22 +287,31 @@ class EvolutionSolver():
     def plot_evolution_curve(self, save_path: str = None, show: bool = True):
         """
         绘制进化曲线图
-        
-        :param save_path: 保存图片的路径，如果为 None 则不保存
-        :param show: 是否显示图片
         """
-        fig, ax = plt.subplots(figsize=(10, 6))
-        
         generations = self.history['generation']
         best_scores = self.history['best_score']
         mean_scores = self.history['mean_score']
         worst_scores = self.history['worst_score']
+        
+        # 如果数据点太少，给出提示
+        if len(generations) <= 1:
+            print(f"[Warning] Only {len(generations)} generation(s) recorded. Skipping plot.")
+            if save_path:
+                with open(save_path.replace('.png', '.txt'), 'w') as f:
+                    f.write(f"Early stopping at generation 0\n")
+                    f.write(f"Best score: {best_scores[0] if best_scores else 'N/A'}\n")
+            return None, None
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
         
         # 绘制曲线
         ax.plot(generations, best_scores, 'b-', linewidth=2, label='Best Score', marker='o', markersize=4)
         ax.plot(generations, mean_scores, 'g--', linewidth=1.5, label='Mean Score', marker='s', markersize=3)
         ax.plot(generations, worst_scores, 'r:', linewidth=1, label='Worst Score', alpha=0.7)
         
+        # 修复 xlim
+        x_max = max(generations) if len(generations) > 1 else 1
+        ax.set_xlim(0, x_max)
         # 填充 best 和 worst 之间的区域
         ax.fill_between(generations, best_scores, worst_scores, alpha=0.15, color='blue')
         
@@ -361,13 +372,15 @@ def save_checkpoint(layout, score, d, n, filename="result.json"):
     
     
 def main():
+    n = 39
+    d = 5
     def signal_handler(sig, frame):
         print("\nSaving current best solution and exiting...")
         try:
             current_best_layout, current_best_score = evolver.get_current_best()
             save_checkpoint(current_best_layout, current_best_score, d, n)
             # 保存进化曲线
-            evolver.plot_evolution_curve(save_path="evolution_curve.png", show=False)
+            evolver.plot_evolution_curve(save_path=f"evolution_curve_d{d}_n{n}.png", show=False)
         except Exception as e:
             print(f"[Error] Failed to save checkpoint: {e}")
         sys.exit(0)
@@ -375,8 +388,6 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     
     try:
-        n = 38
-        d = 5
         evolver = EvolutionSolver(n=n, d=d, pop_size=100, mutation_rate=1.0, crossover_rate=2.0, generations=20)
         final_population = evolver.solve(verbose=True)
         best_score = EvolutionSolver.calculate_score(final_population)
@@ -389,7 +400,7 @@ def main():
             print("Solution is NOT valid.")
         
         # 绘制并保存进化曲线
-        evolver.plot_evolution_curve(save_path="evolution_curve.png", show=True)
+        evolver.plot_evolution_curve(save_path=f"evolution_curve_d{d}_n{n}.png", show=True)
             
     except Exception as e:
         print(f"[Error] An exception occurred: {e}")
