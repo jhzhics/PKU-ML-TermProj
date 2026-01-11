@@ -4,6 +4,18 @@ This is a research project on [Kissing Number Problem](https://en.wikipedia.org/
 1. [Requirement File](docs/ML%20Term%20Project.pdf)
 2. [Discussion Document Link](https://docs.google.com/document/d/1qDuhGE2B0Ftnie3CbB64CrlsF_eG_UEqJj3Fro7AHQw/edit?usp=sharing)
 
+# Usage
+1. use `conda` to setup and activate `kn_env` environment defined in [environment.yml](environment.yml).
+```bash
+# Create Environment
+conda env create -f environment.yml
+
+# Activate Environment
+conda activate kn_env
+```
+
+2. use `python` run the solvers listed below directly. e.g. `python src/AALM.py`
+
 # Solvers
 ### [src/repulsion_solver.py](src/repulsion_solver.py)
 First initialize points randomly and then optimize to make the distance bigger.
