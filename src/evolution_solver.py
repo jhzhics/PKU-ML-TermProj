@@ -6,6 +6,7 @@ import validator
 import json
 import signal
 import sys
+import matplotlib.pyplot as plt
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 dtype = torch.float64
@@ -49,7 +50,7 @@ def optimize(batch_tensor: torch.Tensor) -> torch.Tensor:
     return x.view(orig_shape)
 
 class EvolutionSolver():
-    def __init__(self, n: int, d: int, pop_size: int, mutation_rate: float, crossover_rate: float,generations: int, early_stop_cost: float = 0.5):
+    def __init__(self, n: int, d: int, pop_size: int, mutation_rate: float, crossover_rate: float, generations: int, early_stop_cost: float = 0.5):
         '''
         :param crossover_rate: Will have popsize * crossover_rate offspring created by crossover
         :type crossover_rate: float
@@ -61,6 +62,15 @@ class EvolutionSolver():
         self.crossover_rate = crossover_rate
         self.generations = generations
         self.early_stop_cost = early_stop_cost
+        
+        # 用于记录进化历史
+        self.history = {
+            'generation': [],
+            'best_score': [],
+            'mean_score': [],
+            'worst_score': []
+        }
+        
     def initialize_population(self):
         """
         Initialize the population using a mix of strategies:
@@ -68,7 +78,7 @@ class EvolutionSolver():
         2. Simplex Projection
         3. Random Exploration
         """
-        self.population = torch.zeros(self.pop_size, self.n, self.d, device=device,dtype=dtype)
+        self.population = torch.zeros(self.pop_size, self.n, self.d, device=device, dtype=dtype)
         
         size_simplex = int(self.pop_size * 0.34)
         size_symmetric = int(self.pop_size * 0.34)
@@ -138,7 +148,6 @@ class EvolutionSolver():
         d = orig_shape[-1]
         device = tensor.device
         
-
         flat_tensor = tensor.clone().view(-1, n, d)
         num_instances = flat_tensor.shape[0]
         
@@ -147,11 +156,9 @@ class EvolutionSolver():
         new_points = torch.randn(num_instances, d, device=device, dtype=dtype)
         new_points /= torch.norm(new_points, dim=-1, keepdim=True).clamp(min=1e-12)
         
-
         batch_indices = torch.arange(num_instances, device=device)
         flat_tensor[batch_indices, rand_indices, :] = new_points
         
-
         flat_tensor = optimize(flat_tensor)
         return flat_tensor.view(orig_shape)
     
@@ -163,7 +170,6 @@ class EvolutionSolver():
         target_elite_count = num_crossovers // 2
         K = int(math.sqrt(target_elite_count))
         K = max(1, min(K, self.pop_size)) 
-
 
         idx_range = torch.arange(K, device=device)
         idx_i, idx_j = torch.meshgrid(idx_range, idx_range, indexing='ij')
@@ -206,7 +212,7 @@ class EvolutionSolver():
         p2 = parent2.view(-1, n, d).clone()
         batch_size = p1.shape[0]
 
-        random_matrix = torch.randn(batch_size, d, d, device=device,dtype=dtype)
+        random_matrix = torch.randn(batch_size, d, d, device=device, dtype=dtype)
         q, r = torch.linalg.qr(random_matrix)
         d_sign = torch.diagonal(r, dim1=-2, dim2=-1).sign().view(batch_size, 1, d)
         q = q * d_sign
@@ -233,18 +239,25 @@ class EvolutionSolver():
         self.initialize_population()
         
         for gen in range(self.generations):
+            # 计算当前种群的适应度
+            scores = self.calculate_score(self.population)
+            best_score = scores.min().item()
+            mean_score = scores.mean().item()
+            worst_score = scores.max().item()
+            
+            # 记录历史数据
+            self.history['generation'].append(gen)
+            self.history['best_score'].append(best_score)
+            self.history['mean_score'].append(mean_score)
+            self.history['worst_score'].append(worst_score)
+            
             if verbose:
-                scores = self.calculate_score(self.population)
-                best_score = scores.min().item()
-                mean_score = scores.mean().item()
-                worst_score = scores.max().item()
-                
-                print(f"Gen {gen:4d} | Best Cosine Similarity: {best_score:.6f}\
-| Mean Cosine Similarity: {mean_score:.6f} | Worst Cosine Similarity: {worst_score:.6f}")
+                print(f"Gen {gen:4d} | Best: {best_score:.6f} | Mean: {mean_score:.6f} | Worst: {worst_score:.6f}")
                 
                 if best_score <= self.early_stop_cost:
                     print(f"Early stopping at generation {gen} with best score {best_score:.6f}")
                     break
+                    
             num_mutations = int(self.pop_size * self.mutation_rate)
             num_crossovers = int(self.pop_size * self.crossover_rate)
             
@@ -269,6 +282,70 @@ class EvolutionSolver():
         best_layout = self.population[best_index]
         return best_layout, best_score.item()
     
+    def plot_evolution_curve(self, save_path: str = None, show: bool = True):
+        """
+        绘制进化曲线图
+        
+        :param save_path: 保存图片的路径，如果为 None 则不保存
+        :param show: 是否显示图片
+        """
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        generations = self.history['generation']
+        best_scores = self.history['best_score']
+        mean_scores = self.history['mean_score']
+        worst_scores = self.history['worst_score']
+        
+        # 绘制曲线
+        ax.plot(generations, best_scores, 'b-', linewidth=2, label='Best Score', marker='o', markersize=4)
+        ax.plot(generations, mean_scores, 'g--', linewidth=1.5, label='Mean Score', marker='s', markersize=3)
+        ax.plot(generations, worst_scores, 'r:', linewidth=1, label='Worst Score', alpha=0.7)
+        
+        # 填充 best 和 worst 之间的区域
+        ax.fill_between(generations, best_scores, worst_scores, alpha=0.15, color='blue')
+        
+        # 添加阈值线
+        ax.axhline(y=0.5, color='orange', linestyle='--', linewidth=1.5, label='Threshold (0.5)')
+        
+        # 设置标签和标题
+        ax.set_xlabel('Generation', fontsize=12)
+        ax.set_ylabel('Maximum Cosine Similarity', fontsize=12)
+        ax.set_title(f'Evolution Curve (n={self.n}, d={self.d})', fontsize=14)
+        
+        # 设置图例
+        ax.legend(loc='upper right', fontsize=10)
+        
+        # 设置网格
+        ax.grid(True, linestyle='--', alpha=0.6)
+        
+        # 设置坐标轴范围
+        ax.set_xlim(0, max(generations) if generations else 1)
+        y_min = min(best_scores) if best_scores else 0
+        y_max = max(worst_scores) if worst_scores else 1
+        margin = (y_max - y_min) * 0.1
+        ax.set_ylim(y_min - margin, y_max + margin)
+        
+        # 添加最终结果标注
+        if best_scores:
+            final_best = best_scores[-1]
+            ax.annotate(f'Final Best: {final_best:.4f}', 
+                       xy=(generations[-1], final_best),
+                       xytext=(generations[-1] - len(generations)*0.2, final_best + margin*2),
+                       fontsize=10,
+                       arrowprops=dict(arrowstyle='->', color='blue', lw=1.5),
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='yellow', alpha=0.7))
+        
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+            print(f"Evolution curve saved to {save_path}")
+        
+        if show:
+            plt.show()
+        
+        return fig, ax
+    
 
 def save_checkpoint(layout, score, d, n, filename="result.json"):
     print(f"\n[Saving] Saving layout to {filename}...")
@@ -289,6 +366,8 @@ def main():
         try:
             current_best_layout, current_best_score = evolver.get_current_best()
             save_checkpoint(current_best_layout, current_best_score, d, n)
+            # 保存进化曲线
+            evolver.plot_evolution_curve(save_path="evolution_curve.png", show=False)
         except Exception as e:
             print(f"[Error] Failed to save checkpoint: {e}")
         sys.exit(0)
@@ -308,6 +387,9 @@ def main():
             print("Found valid solution.")
         else:
             print("Solution is NOT valid.")
+        
+        # 绘制并保存进化曲线
+        evolver.plot_evolution_curve(save_path="evolution_curve.png", show=True)
             
     except Exception as e:
         print(f"[Error] An exception occurred: {e}")
@@ -317,4 +399,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
