@@ -1,0 +1,96 @@
+{
+  "d": 3,
+  "start_n": 10,
+  "max_n": 13,
+  "best_n_found": 12,
+  "history": [
+    {
+      "n": 10,
+      "attempt_logs": [
+        {
+          "restart": 0,
+          "score": 10.0,
+          "feasible": true,
+          "empty_radius": 0.0,
+          "min_pair_dist": 1.0014275324691535,
+          "max_norm": 0.999999999999
+        },
+        {
+          "restart": 1,
+          "score": 11.0,
+          "feasible": true,
+          "empty_radius": 1.0,
+          "min_pair_dist": 1.0002787110847666,
+          "max_norm": 0.999999999999
+        }
+      ],
+      "best_score": 11.0
+    },
+    {
+      "n": 11,
+      "attempt_logs": [
+        {
+          "restart": 0,
+          "score": 11.0,
+          "feasible": true,
+          "empty_radius": 0.0,
+          "min_pair_dist": 1.0004309282654698,
+          "max_norm": 0.9999999999989999
+        },
+        {
+          "restart": 1,
+          "score": 11.0,
+          "feasible": true,
+          "empty_radius": 0.0,
+          "min_pair_dist": 1.0006669014157012,
+          "max_norm": 0.999999999999
+        }
+      ],
+      "best_score": 11.0
+    },
+    {
+      "n": 12,
+      "attempt_logs": [
+        {
+          "restart": 0,
+          "score": 12.0,
+          "feasible": true,
+          "empty_radius": 0.0,
+          "min_pair_dist": 1.0335797701921072,
+          "max_norm": 0.9999999999989999
+        },
+        {
+          "restart": 1,
+          "score": 12.0,
+          "feasible": true,
+          "empty_radius": 0.0,
+          "min_pair_dist": 1.0335797701921072,
+          "max_norm": 0.9999999999989999
+        }
+      ],
+      "best_score": 12.0
+    },
+    {
+      "n": 13,
+      "attempt_logs": [
+        {
+          "restart": 0,
+          "score": 0.0,
+          "feasible": false,
+          "empty_radius": 0.0,
+          "min_pair_dist": 0.9231697228341705,
+          "max_norm": 1.0000000967620657
+        },
+        {
+          "restart": 1,
+          "score": 0.0,
+          "feasible": false,
+          "empty_radius": 0.0,
+          "min_pair_dist": 0.8611186731542816,
+          "max_norm": 1.000000069692786
+        }
+      ],
+      "best_score": 0.0
+    }
+  ]
+}

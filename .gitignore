@@ -4,5 +4,7 @@
 # Python cache files
 __pycache__/
 
-# Result files
+# Resutls
+.DS_Store
+out_d3/
 result.json
