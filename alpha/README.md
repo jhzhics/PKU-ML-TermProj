@@ -54,3 +54,30 @@ Your prompt referenced OpenEvolve. Since this environment doesn’t include its 
 
 Once you clone/install OpenEvolve, adapt that file to match its actual API.
 
+## AlphaEvolve
+### Installation
+```bash
+git checkout alpha
+pip install -r requirements.txt
+```
+
+### Sanity Check (Quick serach and eval)
+```bash
+python -m experiments.run_search --d 3 --start-n 10 --max-n 13 --budget 400 --restarts 2 --out out_d3_quick
+python -m experiments.evaluate_solution --path out_d3_quick/best_overall.json --empty-directions 512
+```
+### Run Experiments
+```bash
+python -m experiments.run_search --d 3 --start-n 10 --max-n 13 --budget 400 --restarts 2 --out out_d3_quick
+python -m experiments.evaluate_solution --path out_d3_quick/best_overall.json --empty-directions 512
+```
+
+### Outputs
+
+After run_search, you should see files under the output folder:
+
+best_n*.json: best solution found for each attempted n
+
+best_overall.json: best feasible solution (largest n found)
+
+summary.json: a log of attempted n and restart stats
